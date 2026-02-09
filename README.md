@@ -16,6 +16,8 @@ Data source: `public/mapa-carnaval.json`.
 
 Configuração de rotas: no topo da sidebar esquerda é possível definir o intervalo mínimo (em horas) entre blocos para o cálculo das rotas. As rotas priorizam blocos com horário mais próximo do intervalo definido; em caso de empate de horário, a menor distância total é usada.
 
+Interface: o layout foi renovado com tema escuro e painel lateral inspirado em dashboards de mapas, mantendo a experiência de seleção e roteamento.
+
 
 1. Install dependencies:
    `npm install`

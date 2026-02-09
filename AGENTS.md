@@ -9,7 +9,7 @@
 - `index.html` and `index.tsx` boot the React app via Vite.
 - `App.tsx` holds the main UI and orchestration logic.
 - `components/` contains React UI modules (e.g., `components/Map.tsx`).
-- `services/` contains data and API helpers (e.g., `services/api.ts`, `services/gemini.ts`).
+- `services/` contains data and API helpers (e.g., `services/api.ts`).
 - `types.ts` defines shared TypeScript types.
 - `public/mapa-carnaval.json` is the local data source; `metadata.json` holds app metadata.
 
@@ -26,6 +26,10 @@
 - Functions and variables use camelCase (`fetchBloquinhos`).
 - No formatter or linter is configured; keep changes small and consistent with surrounding code.
 
+## UI & Theme
+- O tema visual principal é escuro com painel lateral; cores e tipografia globais ficam em `index.html`.
+- Ajustes de layout devem manter a proporção do painel lateral e o mapa ocupando a área principal.
+
 ## Testing Guidelines
 - No automated test framework is currently configured.
 - Validate changes by running `npm run dev` and manually checking map rendering, route highlighting, and data loading.
@@ -37,5 +41,4 @@
 - PRs should include a clear summary, testing notes, and screenshots for UI changes. Mention any data updates to `mapa-carnaval.json`.
 
 ## Configuration & Secrets
-- Set `GEMINI_API_KEY` in `.env.local` for AI features.
 - Do not commit `.env.local` or other secrets.

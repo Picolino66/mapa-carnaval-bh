@@ -21,8 +21,8 @@ const Map: React.FC<MapProps> = ({ blocks, highlightedRoute, focusedBlockId }) =
     // Inicializa o mapa focado em Belo Horizonte
     mapRef.current = L.map(mapContainerRef.current).setView([-19.919, -43.938], 13);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
     }).addTo(mapRef.current);
 
     return () => {
@@ -59,19 +59,21 @@ const Map: React.FC<MapProps> = ({ blocks, highlightedRoute, focusedBlockId }) =
           icon: L.divIcon({
             className: 'custom-div-icon',
             html: `
-              <div class="flex items-center justify-center w-8 h-8 rounded-full border-2 border-white shadow-lg transition-transform duration-300 ${isHighlightedInRoute ? 'bg-orange-50 scale-125 z-[1000]' : 'bg-purple-600'}">
-                <span class="text-white text-[10px] font-bold">🎊</span>
+              <div class="flex items-center justify-center w-9 h-9 rounded-full border border-white/20 shadow-xl transition-transform duration-300 ${isHighlightedInRoute ? 'bg-[#78f0c8] scale-110' : 'bg-[#1f1f25]'}">
+                <div class="flex items-center justify-center w-7 h-7 rounded-full ${isHighlightedInRoute ? 'bg-[#111114] text-[#78f0c8]' : 'bg-white/10 text-white'}">
+                  <span class="text-[11px]">🎊</span>
+                </div>
               </div>
             `,
-            iconSize: [32, 32],
-            iconAnchor: [16, 16]
+            iconSize: [36, 36],
+            iconAnchor: [18, 18]
           })
         })
         .bindPopup(`
           <div class="p-1">
-            <h3 class="font-bold text-sm text-purple-800">${block.nome}</h3>
-            <p class="text-xs"><strong>Horário:</strong> ${block.horario.substring(0, 5)}</p>
-            <p class="text-[10px] text-gray-600">${block.local}</p>
+            <h3 class="font-semibold text-sm text-white">${block.nome}</h3>
+            <p class="text-xs text-zinc-300"><strong>Horário:</strong> ${block.horario.substring(0, 5)}</p>
+            <p class="text-[10px] text-zinc-400">${block.local}</p>
           </div>
         `)
         .addTo(mapRef.current!);
@@ -91,10 +93,10 @@ const Map: React.FC<MapProps> = ({ blocks, highlightedRoute, focusedBlockId }) =
 
       if (routePoints.length > 1) {
         polylineRef.current = L.polyline(routePoints, {
-          color: '#f97316',
-          weight: 5,
-          opacity: 0.8,
-          dashArray: '10, 10',
+          color: '#78f0c8',
+          weight: 4,
+          opacity: 0.9,
+          dashArray: '6, 8',
           lineJoin: 'round'
         }).addTo(mapRef.current);
       }
@@ -123,7 +125,7 @@ const Map: React.FC<MapProps> = ({ blocks, highlightedRoute, focusedBlockId }) =
     }
   }, [focusedBlockId]);
 
-  return <div ref={mapContainerRef} className="w-full h-full rounded-xl overflow-hidden shadow-inner border border-slate-200" />;
+  return <div ref={mapContainerRef} className="w-full h-full rounded-[24px] overflow-hidden shadow-inner border border-white/10" />;
 };
 
 export default Map;
