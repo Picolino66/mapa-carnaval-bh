@@ -24,6 +24,7 @@ const App: React.FC = () => {
   const [focusedBlockId, setFocusedBlockId] = useState<number | null>(null);
   const [originBlockId, setOriginBlockId] = useState<number | null>(null);
   const [routeInfoMessage, setRouteInfoMessage] = useState<string | null>(null);
+  const [expandedBlockId, setExpandedBlockId] = useState<number | null>(null);
 
   const getTodayString = () => {
     const d = new Date();
@@ -85,6 +86,7 @@ const App: React.FC = () => {
     setFocusedBlockId(null);
     setOriginBlockId(null);
     setRouteInfoMessage(null);
+    setExpandedBlockId(null);
   }, [state.selectedDate, state.allBlocks]);
 
   const handleFocusBlock = (block: Bloquinho) => {
@@ -112,6 +114,7 @@ const App: React.FC = () => {
     setOriginBlockId(block.id);
     setActiveRouteIndex(null);
     setRouteInfoMessage(null);
+    setExpandedBlockId(block.id);
     
     setState(prev => ({ ...prev, isGeneratingRoutes: true }));
 
@@ -174,10 +177,9 @@ const App: React.FC = () => {
       <header className="bg-purple-700 text-white p-4 shadow-md z-10">
         <div className="container mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-2">
-            <span className="text-3xl">📐</span>
             <div>
-              <h1 className="text-xl font-bold tracking-tight leading-none">Mapa do Bloco</h1>
-              <p className="text-[10px] text-purple-200 font-medium mt-1 uppercase tracking-widest">Engenharia de Carnaval BH</p>
+              <h1 className="text-xl font-bold tracking-tight leading-none">Mapa do Bloco BH</h1>
+              <p className="text-[10px] text-purple-200 font-medium mt-1 uppercase tracking-widest">Trace rotas de 3 blocos</p>
             </div>
           </div>
 
@@ -239,46 +241,6 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {state.suggestedRoutes.length > 0 && (
-              <div className="mb-6 animate-in fade-in slide-in-from-left-4 duration-500">
-                <h3 className="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
-                  Itinerários Sugeridos
-                </h3>
-                <div className="space-y-3">
-                  {state.suggestedRoutes.map((route, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setActiveRouteIndex(activeRouteIndex === idx ? null : idx)}
-                      className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
-                        activeRouteIndex === idx 
-                        ? 'border-orange-500 bg-orange-50 ring-4 ring-orange-100' 
-                        : 'border-slate-100 bg-white hover:border-orange-200 shadow-sm'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-black text-orange-600 text-[11px] uppercase">{route.title}</span>
-                        {(route as any).isFallback && (
-                           <span className="bg-amber-200 text-amber-800 text-[8px] font-bold px-1.5 py-0.5 rounded">RÁPIDO</span>
-                        )}
-                      </div>
-                      <p className="text-[10px] text-slate-500 mb-2 font-medium">{route.description}</p>
-                      <div className="flex flex-wrap gap-1 items-center">
-                        {route.blockIds.map((bid, i) => (
-                          <React.Fragment key={bid}>
-                            <span className={`text-[9px] px-1.5 py-0.5 rounded truncate max-w-[85px] font-bold ${i === 0 ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-600'}`}>
-                              {state.allBlocks.find(b => b.id === bid)?.nome || 'Bloco'}
-                            </span>
-                            {i < route.blockIds.length - 1 && <span className="text-slate-300 text-[10px]">→</span>}
-                          </React.Fragment>
-                        ))}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest py-1 border-b border-slate-100 mb-2">
               Todos os Blocos
             </h3>
@@ -324,6 +286,63 @@ const App: React.FC = () => {
                       <>{originBlockId === block.id ? 'PONTO DE PARTIDA' : 'TRAÇAR ROTA'}</>
                     )}
                   </button>
+
+                  {expandedBlockId === block.id && state.suggestedRoutes.length > 0 && (
+                    <div className="mt-4 space-y-3 animate-in fade-in slide-in-from-left-4 duration-300">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-[10px] font-black text-orange-500 uppercase tracking-widest flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+                          Itinerários Sugeridos
+                        </h3>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedBlockId(null);
+                            setActiveRouteIndex(null);
+                            setRouteInfoMessage(null);
+                            setState(prev => ({
+                              ...prev,
+                              suggestedRoutes: []
+                            }));
+                          }}
+                          className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                          Ocultar
+                        </button>
+                      </div>
+                      <div className="space-y-3">
+                        {state.suggestedRoutes.map((route, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => setActiveRouteIndex(activeRouteIndex === idx ? null : idx)}
+                            className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
+                              activeRouteIndex === idx 
+                              ? 'border-orange-500 bg-orange-50 ring-4 ring-orange-100' 
+                              : 'border-slate-100 bg-white hover:border-orange-200 shadow-sm'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-black text-orange-600 text-[11px] uppercase">{route.title}</span>
+                              {(route as any).isFallback && (
+                                 <span className="bg-amber-200 text-amber-800 text-[8px] font-bold px-1.5 py-0.5 rounded">RÁPIDO</span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-slate-500 mb-2 font-medium">{route.description}</p>
+                            <div className="flex flex-wrap gap-1 items-center">
+                              {route.blockIds.map((bid, i) => (
+                                <React.Fragment key={bid}>
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded truncate max-w-[85px] font-bold ${i === 0 ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                                    {state.allBlocks.find(b => b.id === bid)?.nome || 'Bloco'}
+                                  </span>
+                                  {i < route.blockIds.length - 1 && <span className="text-slate-300 text-[10px]">→</span>}
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))
             )}
