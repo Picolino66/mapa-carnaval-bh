@@ -540,7 +540,7 @@ const App: React.FC = () => {
 
         <div
           className={`flex-1 relative min-h-0 p-3 md:p-4 transition-all duration-300 ease-out md:h-full ${
-            activeRoute ? 'h-[65vh] -mt-[12vh]' : 'h-1/2'
+            activeRoute ? 'h-[65vh] -mt-[calc(40vh-190px)]' : 'h-1/2'
           } md:mt-0`}
         >
           <Map 
