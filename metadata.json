@@ -1,6 +1,6 @@
 
 {
-  "name": "Mapa do Bloco - Engenharia Logística 2026",
+  "name": "BH Carnaval - Engenharia Logística 2026",
   "description": "Plataforma determinística para planejamento de rotas de Carnaval em BH. Calcula trajetos otimizados entre blocos com base em distância (Haversine) e janelas de tempo reais.",
   "requestFramePermissions": [
     "geolocation"

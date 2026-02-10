@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mapa do Bloco - Engenharia de Rotas</title>
+    <title>BH Carnaval - Engenharia de Rotas</title>
 
     <!-- Otimizações de performance -->
     <link rel="preload" href="/mapa-carnaval.json" as="fetch" crossorigin>
@@ -119,6 +119,35 @@
         }
         .marker-cluster-large div {
             background-color: rgba(120, 240, 200, 0.8);
+        }
+        /* Carrossel Mobile */
+        .carousel-container {
+            display: flex;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scroll-snap-type: x mandatory;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none; /* Firefox */
+        }
+        .carousel-container::-webkit-scrollbar {
+            display: none; /* Chrome, Safari */
+        }
+        .carousel-page {
+            scroll-snap-align: start;
+            scroll-snap-stop: always;
+        }
+        /* Indicadores de página */
+        .carousel-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+        .carousel-dot.active {
+            background: var(--accent);
+            width: 24px;
+            border-radius: 4px;
         }
     </style>
 <script type="importmap">
