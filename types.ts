@@ -12,6 +12,12 @@ export interface Bloquinho {
   longitude: string;
   categoria_evento: string;
   total_favoritos: number;
+  // Campos pré-computados para otimização
+  lat: number;
+  lng: number;
+  startTime: number; // minutos desde meia-noite
+  endTime: number | null;
+  searchableText: string; // texto normalizado para busca
 }
 
 export interface RouteSuggestion {

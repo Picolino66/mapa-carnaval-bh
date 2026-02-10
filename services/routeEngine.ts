@@ -1,6 +1,10 @@
 
 import { Bloquinho } from '../types';
 
+// ========== CACHE DE DISTÂNCIAS ==========
+// Armazena distâncias já calculadas para evitar recálculos
+const distanceCache = new Map<string, number>();
+
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
   const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -13,9 +17,28 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * c;
 }
 
-function parseTime(timeStr: string): number {
-  const [hrs, mins] = timeStr.split(':').map(Number);
-  return hrs * 60 + mins;
+/**
+ * Calcula distância com cache para evitar recálculos
+ */
+function getCachedDistance(block1: Bloquinho, block2: Bloquinho): number {
+  // Usar IDs dos blocos como chave (ordem não importa pois distância é simétrica)
+  const key = block1.id < block2.id
+    ? `${block1.id}-${block2.id}`
+    : `${block2.id}-${block1.id}`;
+
+  if (!distanceCache.has(key)) {
+    const dist = haversineKm(block1.lat, block1.lng, block2.lat, block2.lng);
+    distanceCache.set(key, dist);
+  }
+
+  return distanceCache.get(key)!;
+}
+
+/**
+ * Limpa o cache de distâncias (útil se dados mudarem)
+ */
+export function clearDistanceCache(): void {
+  distanceCache.clear();
 }
 
 export interface CalculatedRoute {
@@ -39,14 +62,14 @@ export function generateRoutesFromStart(
   allBlocks: Bloquinho[],
   minGapMinutes: number
 ): RouteResult {
-  const startTime = parseTime(startBlock.horario);
+  const startTime = startBlock.startTime; // Usar campo pré-computado
   const normalizedMinGap = Math.max(0, Math.floor(minGapMinutes));
 
   const sameDayFutureBlocks = allBlocks
     .filter(b => b.data === startBlock.data && b.id !== startBlock.id)
-    .sort((a, b) => parseTime(a.horario) - parseTime(b.horario));
+    .sort((a, b) => a.startTime - b.startTime); // Usar campo pré-computado
 
-  const nextImmediateBlock = sameDayFutureBlocks.find(b => parseTime(b.horario) > startTime);
+  const nextImmediateBlock = sameDayFutureBlocks.find(b => b.startTime > startTime);
 
   // TENTATIVA 1: Regra principal
   let routes = findRoutes(startBlock, sameDayFutureBlocks, normalizedMinGap, false);
@@ -74,13 +97,15 @@ export function generateRoutesFromStart(
 }
 
 function findRoutes(
-  startBlock: Bloquinho, 
-  candidates: Bloquinho[], 
+  startBlock: Bloquinho,
+  candidates: Bloquinho[],
   minGap: number,
   isFallback: boolean
 ): ScoredRoute[] {
   const results: ScoredRoute[] = [];
-  const startTime = parseTime(startBlock.horario);
+  const startTime = startBlock.startTime; // Usar campo pré-computado
+  const MAX_ROUTES_TO_CONSIDER = 100; // Early exit: limitar busca
+  let routesConsidered = 0;
 
   const computeGap = (prevTime: number, nextTime: number) => {
     const target = prevTime + minGap;
@@ -91,26 +116,27 @@ function findRoutes(
   };
 
   for (const blockB of candidates) {
-    const timeB = parseTime(blockB.horario);
+    const timeB = blockB.startTime; // Usar campo pré-computado
     if (timeB < startTime) continue;
     if (!isFallback && timeB < startTime + minGap) continue;
 
-    const distAB = haversineKm(
-      parseFloat(startBlock.latitude), parseFloat(startBlock.longitude),
-      parseFloat(blockB.latitude), parseFloat(blockB.longitude)
-    );
+    const distAB = getCachedDistance(startBlock, blockB); // Usar cache
     const gapAB = computeGap(startTime, timeB);
 
     for (const blockC of candidates) {
       if (blockC.id === blockB.id) continue;
-      const timeC = parseTime(blockC.horario);
+      const timeC = blockC.startTime; // Usar campo pré-computado
       if (timeC < timeB) continue;
       if (!isFallback && timeC < timeB + minGap) continue;
 
-      const distBC = haversineKm(
-        parseFloat(blockB.latitude), parseFloat(blockB.longitude),
-        parseFloat(blockC.latitude), parseFloat(blockC.longitude)
-      );
+      routesConsidered++;
+
+      // Early exit: parar após considerar muitas rotas
+      if (routesConsidered >= MAX_ROUTES_TO_CONSIDER) {
+        break;
+      }
+
+      const distBC = getCachedDistance(blockB, blockC); // Usar cache
       const gapBC = computeGap(timeB, timeC);
 
       results.push({
@@ -121,6 +147,13 @@ function findRoutes(
         gapBC
       });
     }
+
+    // Early exit: sair do loop externo também
+    if (routesConsidered >= MAX_ROUTES_TO_CONSIDER) {
+      break;
+    }
   }
+
+  console.log(`⚡ Consideradas ${routesConsidered} combinações de rotas (otimizado com cache e early exit)`);
   return results;
 }

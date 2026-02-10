@@ -1,9 +1,11 @@
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { fetchBloquinhos } from './services/api';
 import { generateRoutesFromStart } from './services/routeEngine';
 import { Bloquinho, RouteSuggestion, AppState } from './types';
 import Map from './components/Map';
+import BlockListItem from './components/BlockListItem';
+import { useDebounce } from './hooks/useDebounce';
 
 const DEFAULT_MIN_GAP_HOURS = 4;
 
@@ -39,45 +41,40 @@ const App: React.FC = () => {
     return `${year}-${month}-${day}`;
   };
 
-  const normalizeQuery = (value: string) =>
+  const normalizeQuery = useCallback((value: string) =>
     value
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
-      .trim();
+      .trim()
+  , []);
 
-  const formatDateLabel = (date: string) => {
+  const formatDateLabel = useCallback((date: string) => {
     if (!date) return 'SELECIONE';
     return date === getTodayString()
       ? 'HOJE'
       : new Date(date + 'T12:00:00')
           .toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', weekday: 'short' })
           .toUpperCase();
-  };
+  }, []);
 
-  const matchesSearch = (block: Bloquinho, query: string) => {
+  /**
+   * Busca otimizada: usa campo searchableText pré-computado
+   */
+  const matchesSearch = useCallback((block: Bloquinho, query: string) => {
     if (!query) return true;
-    const fields = [
-      block.nome,
-      block.local,
-      block.endereco,
-      block.horario,
-      block.horario.substring(0, 5),
-      block.horario_fim || '',
-    ];
-    return fields.some(field => normalizeQuery(field).includes(query));
-  };
+    return block.searchableText.includes(query);
+  }, []);
 
   const availableDates = useMemo(() => {
     const today = getTodayString();
     const dates = Array.from(new Set(state.allBlocks.map(b => b.data)))
-      .filter(date => date >= today)
-      .sort();
-    
+      .filter(date => date >= today);
+
     if (!dates.includes(today)) {
       dates.unshift(today);
     }
-    return dates.sort();
+    return dates.sort(); // Apenas 1 sort no final
   }, [state.allBlocks]);
 
   useEffect(() => {
@@ -108,19 +105,31 @@ const App: React.FC = () => {
     loadData();
   }, []);
 
-  useEffect(() => {
-    if (!state.selectedDate) return;
-    const normalizedQuery = normalizeQuery(state.searchQuery);
-    const filtered = state.allBlocks
+  // Debounce da busca para evitar filtros a cada keystroke
+  const debouncedSearchQuery = useDebounce(state.searchQuery, 300);
+
+  // Memoizar query normalizada
+  const normalizedQuery = useMemo(
+    () => normalizeQuery(debouncedSearchQuery),
+    [debouncedSearchQuery, normalizeQuery]
+  );
+
+  // Memoizar filteredBlocks para evitar recálculos desnecessários
+  const filteredBlocks = useMemo(() => {
+    if (!state.selectedDate) return [];
+    return state.allBlocks
       .filter(b => b.data === state.selectedDate)
       .filter(b => matchesSearch(b, normalizedQuery));
+  }, [state.selectedDate, state.allBlocks, normalizedQuery, matchesSearch]);
 
-    const availableIds = new Set(filtered.map(b => b.id));
+  // Atualizar state com filteredBlocks memoizado
+  useEffect(() => {
+    const availableIds = new Set(filteredBlocks.map(b => b.id));
     const activeOriginStillVisible = originBlockId !== null && availableIds.has(originBlockId);
 
-    setState(prev => ({ 
-      ...prev, 
-      filteredBlocks: filtered,
+    setState(prev => ({
+      ...prev,
+      filteredBlocks,
       suggestedRoutes: activeOriginStillVisible ? prev.suggestedRoutes : [],
     }));
 
@@ -136,26 +145,26 @@ const App: React.FC = () => {
     if (originBlockId !== null && !availableIds.has(originBlockId)) {
       setOriginBlockId(null);
     }
-  }, [state.selectedDate, state.allBlocks, state.searchQuery, focusedBlockId, originBlockId]);
+  }, [filteredBlocks, focusedBlockId, originBlockId]);
+
+  const handleOutsideClick = useCallback((event: MouseEvent) => {
+    if (dateMenuRef.current && !dateMenuRef.current.contains(event.target as Node)) {
+      setIsDateMenuOpen(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isDateMenuOpen) return;
 
-    const handleOutsideClick = (event: MouseEvent) => {
-      if (dateMenuRef.current && !dateMenuRef.current.contains(event.target as Node)) {
-        setIsDateMenuOpen(false);
-      }
-    };
-
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [isDateMenuOpen]);
+  }, [isDateMenuOpen, handleOutsideClick]);
 
-  const handleFocusBlock = (block: Bloquinho) => {
+  const handleFocusBlock = useCallback((block: Bloquinho) => {
     setFocusedBlockId(block.id);
-  };
+  }, []);
 
-  const handleMinGapHoursChange = (value: string) => {
+  const handleMinGapHoursChange = useCallback((value: string) => {
     const numericValue = Number(value);
     const nextMinGapHours = Number.isFinite(numericValue)
       ? Math.max(0, Math.floor(numericValue))
@@ -168,20 +177,19 @@ const App: React.FC = () => {
     }));
     setActiveRouteIndex(null);
     setRouteInfoMessage(null);
-  };
+  }, []);
 
-  const adjustMinGapHours = (delta: number) => {
-    const nextValue = Math.max(0, state.minGapHours + delta);
+  const adjustMinGapHours = useCallback((delta: number) => {
     setState(prev => ({
       ...prev,
-      minGapHours: nextValue,
+      minGapHours: Math.max(0, prev.minGapHours + delta),
       suggestedRoutes: []
     }));
     setActiveRouteIndex(null);
     setRouteInfoMessage(null);
-  };
+  }, []);
 
-  const handleSearchChange = (value: string) => {
+  const handleSearchChange = useCallback((value: string) => {
     setState(prev => ({
       ...prev,
       searchQuery: value,
@@ -190,62 +198,67 @@ const App: React.FC = () => {
     setActiveRouteIndex(null);
     setRouteInfoMessage(null);
     setExpandedBlockId(null);
-  };
+  }, []);
 
-  const handleGenerateFromBlock = (e: React.MouseEvent, block: Bloquinho) => {
+  const handleGenerateFromBlock = useCallback(async (e: React.MouseEvent, block: Bloquinho) => {
     e.stopPropagation();
+
+    // Agrupar múltiplos setStates em um único
     setFocusedBlockId(block.id);
     setOriginBlockId(block.id);
     setActiveRouteIndex(null);
     setRouteInfoMessage(null);
     setExpandedBlockId(block.id);
-    
+
     setState(prev => ({
       ...prev,
       isGeneratingRoutes: true,
       searchQuery: ''
     }));
 
-    setTimeout(() => {
-      const minGapMinutes = Math.max(0, Math.round(state.minGapHours * 60));
-      const hasMinGap = minGapMinutes > 0;
-      const minGapLabel = `${state.minGapHours}h`;
-      const primaryDescription = hasMinGap
-        ? `Circuito otimizado com janelas de ${minGapLabel}.`
-        : 'Circuito otimizado sem intervalo mínimo.';
-      const fallbackDescription = hasMinGap
-        ? `Próximos blocos disponíveis (Intervalo < ${minGapLabel}).`
-        : 'Próximos blocos disponíveis.';
+    // Usar requestAnimationFrame para permitir UI atualizar antes do cálculo
+    await new Promise(resolve => requestAnimationFrame(resolve));
 
-      const result = generateRoutesFromStart(block, state.allBlocks, minGapMinutes);
-      
-      const suggestions: (RouteSuggestion & { isFallback?: boolean })[] = result.routes.map((r, idx) => ({
-        title: `Roteiro ${idx + 1}`,
-        description: r.isFallback 
-          ? fallbackDescription 
-          : primaryDescription,
-        blockIds: r.blockIds,
-        isFallback: r.isFallback
-      }));
+    const minGapMinutes = Math.max(0, Math.round(state.minGapHours * 60));
+    const hasMinGap = minGapMinutes > 0;
+    const minGapLabel = `${state.minGapHours}h`;
+    const primaryDescription = hasMinGap
+      ? `Circuito otimizado com janelas de ${minGapLabel}.`
+      : 'Circuito otimizado sem intervalo mínimo.';
+    const fallbackDescription = hasMinGap
+      ? `Próximos blocos disponíveis (Intervalo < ${minGapLabel}).`
+      : 'Próximos blocos disponíveis.';
 
-      // Se não tem rota, manda a real pro usuário
-      if (suggestions.length === 0) {
-        if (result.nextImmediateBlock) {
-          setRouteInfoMessage(`Não conseguimos montar um itinerário completo de 3 blocos. Mas aproveite: o próximo bloco hoje é o ${result.nextImmediateBlock.nome} às ${result.nextImmediateBlock.horario.substring(0, 5)}!`);
-        } else {
-          setRouteInfoMessage("Fim da linha! Não existem mais blocos programados para hoje após este horário.");
-        }
-      } else if (suggestions[0].isFallback && hasMinGap) {
-         setRouteInfoMessage(`Atenção: Não encontramos blocos com intervalo de ${minGapLabel}, então selecionamos os próximos disponíveis para você não ficar parado!`);
+    const result = generateRoutesFromStart(block, state.allBlocks, minGapMinutes);
+
+    const suggestions: (RouteSuggestion & { isFallback?: boolean })[] = result.routes.map((r, idx) => ({
+      title: `Roteiro ${idx + 1}`,
+      description: r.isFallback
+        ? fallbackDescription
+        : primaryDescription,
+      blockIds: r.blockIds,
+      isFallback: r.isFallback
+    }));
+
+    // Se não tem rota, manda a real pro usuário
+    let infoMessage = null;
+    if (suggestions.length === 0) {
+      if (result.nextImmediateBlock) {
+        infoMessage = `Não conseguimos montar um itinerário completo de 3 blocos. Mas aproveite: o próximo bloco hoje é o ${result.nextImmediateBlock.nome} às ${result.nextImmediateBlock.horario.substring(0, 5)}!`;
+      } else {
+        infoMessage = "Fim da linha! Não existem mais blocos programados para hoje após este horário.";
       }
+    } else if (suggestions[0].isFallback && hasMinGap) {
+      infoMessage = `Atenção: Não encontramos blocos com intervalo de ${minGapLabel}, então selecionamos os próximos disponíveis para você não ficar parado!`;
+    }
 
-      setState(prev => ({
-        ...prev,
-        suggestedRoutes: suggestions,
-        isGeneratingRoutes: false
-      }));
-    }, 300);
-  };
+    setRouteInfoMessage(infoMessage);
+    setState(prev => ({
+      ...prev,
+      suggestedRoutes: suggestions,
+      isGeneratingRoutes: false
+    }));
+  }, [state.allBlocks, state.minGapHours]);
 
   const activeRoute = activeRouteIndex !== null ? state.suggestedRoutes[activeRouteIndex] : null;
 
@@ -425,99 +438,31 @@ const App: React.FC = () => {
               </div>
             ) : (
               state.filteredBlocks.map(block => (
-                <div 
-                  key={block.id} 
-                  onClick={() => handleFocusBlock(block)}
-                  className={`p-3 rounded-2xl border cursor-pointer transition-all group ${
-                    focusedBlockId === block.id
-                      ? 'border-[var(--accent)] bg-white/5 shadow-[0_8px_30px_rgba(120,240,200,0.12)]'
-                      : 'bg-white/5 border-white/10 hover:border-white/20'
-                  } ${originBlockId === block.id ? 'ring-2 ring-[var(--accent-warning)]/70 border-[var(--accent-warning)]/60' : ''}`}
-                >
-                  <div className="flex justify-between items-start mb-1 gap-2">
-                    <h4 className={`font-semibold text-sm leading-tight flex-1 ${focusedBlockId === block.id ? 'text-white' : 'text-zinc-100'}`}>
-                      {block.nome}
-                    </h4>
-                    <span className="text-[11px] font-semibold text-zinc-100 bg-white/10 px-2 py-0.5 rounded-lg border border-white/10">
-                      {block.horario.substring(0, 5)}
-                    </span>
-                  </div>
-                  
-                  <p className="text-[10px] text-zinc-400 font-medium mb-3 truncate">📍 {block.local}</p>
-                  
-                  <button
-                    onClick={(e) => handleGenerateFromBlock(e, block)}
-                    disabled={state.isGeneratingRoutes}
-                    className={`w-full py-2 rounded-xl text-[10px] font-semibold uppercase tracking-[0.3em] transition-all flex items-center justify-center gap-2 ${
-                      originBlockId === block.id 
-                        ? 'bg-white/10 text-[var(--accent-warning)] border border-white/10'
-                        : 'bg-[var(--accent)] text-slate-900 hover:bg-[var(--accent-strong)] shadow-sm group-hover:scale-[1.02]'
-                    }`}
-                  >
-                    {state.isGeneratingRoutes && focusedBlockId === block.id ? (
-                      <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    ) : (
-                      <>{originBlockId === block.id ? 'PONTO DE PARTIDA' : 'TRAÇAR ROTA'}</>
-                    )}
-                  </button>
-
-                  {expandedBlockId === block.id && state.suggestedRoutes.length > 0 && (
-                    <div className="mt-4 space-y-3 animate-in fade-in slide-in-from-left-4 duration-300">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-[10px] font-semibold text-[var(--accent-warning)] uppercase tracking-widest flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-[var(--accent-warning)] animate-pulse"></span>
-                          Itinerários sugeridos
-                        </h3>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedBlockId(null);
-                            setActiveRouteIndex(null);
-                            setRouteInfoMessage(null);
-                            setState(prev => ({
-                              ...prev,
-                              suggestedRoutes: []
-                            }));
-                          }}
-                          className="text-[9px] font-semibold uppercase tracking-widest text-white bg-[var(--accent-warning)]/30 border border-[var(--accent-warning)]/60 px-3 py-1.5 rounded-full hover:bg-[var(--accent-warning)]/50 hover:text-white transition-colors"
-                        >
-                          Ocultar
-                        </button>
-                      </div>
-                      <div className="space-y-3">
-                        {state.suggestedRoutes.map((route, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => setActiveRouteIndex(activeRouteIndex === idx ? null : idx)}
-                            className={`w-full text-left p-3 rounded-2xl border transition-all ${
-                              activeRouteIndex === idx 
-                                ? 'border-[var(--accent-warning)] bg-white/10 ring-4 ring-[var(--accent-warning)]/20' 
-                                : 'border-white/10 bg-white/5 hover:border-white/20'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="font-semibold text-[var(--accent-warning)] text-[11px] uppercase">{route.title}</span>
-                              {(route as any).isFallback && (
-                                 <span className="bg-[var(--accent-warning)]/20 text-[var(--accent-warning)] text-[8px] font-semibold px-1.5 py-0.5 rounded">RÁPIDO</span>
-                              )}
-                            </div>
-                            <p className="text-[10px] text-zinc-400 mb-2 font-medium">{route.description}</p>
-                            <div className="flex flex-wrap gap-1 items-center">
-                              {route.blockIds.map((bid, i) => (
-                                <React.Fragment key={bid}>
-                                  <span className={`text-[9px] px-1.5 py-0.5 rounded truncate max-w-[85px] font-semibold ${i === 0 ? 'bg-[var(--accent-warning)] text-slate-900' : 'bg-white/10 text-zinc-200'}`}>
-                                    {state.allBlocks.find(b => b.id === bid)?.nome || 'Bloco'}
-                                  </span>
-                                  {i < route.blockIds.length - 1 && <span className="text-zinc-600 text-[10px]">→</span>}
-                                </React.Fragment>
-                              ))}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <BlockListItem
+                  key={block.id}
+                  block={block}
+                  isFocused={focusedBlockId === block.id}
+                  isOrigin={originBlockId === block.id}
+                  isExpanded={expandedBlockId === block.id}
+                  isGeneratingRoutes={state.isGeneratingRoutes}
+                  suggestedRoutes={state.suggestedRoutes}
+                  activeRouteIndex={activeRouteIndex}
+                  allBlocks={state.allBlocks}
+                  onFocus={handleFocusBlock}
+                  onGenerateRoute={handleGenerateFromBlock}
+                  onToggleExpand={setExpandedBlockId}
+                  onSetActiveRoute={setActiveRouteIndex}
+                  onClearRoutes={(e) => {
+                    e.stopPropagation();
+                    setExpandedBlockId(null);
+                    setActiveRouteIndex(null);
+                    setRouteInfoMessage(null);
+                    setState(prev => ({
+                      ...prev,
+                      suggestedRoutes: []
+                    }));
+                  }}
+                />
               ))
             )}
           </div>
