@@ -25,7 +25,29 @@ const Map: React.FC<MapProps> = ({ blocks, highlightedRoute, focusedBlockId }) =
       attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
     }).addTo(mapRef.current);
 
+    const handleResize = () => {
+      mapRef.current?.invalidateSize();
+    };
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (mapContainerRef.current && 'ResizeObserver' in window) {
+      resizeObserver = new ResizeObserver(() => handleResize());
+      resizeObserver.observe(mapContainerRef.current);
+    } else {
+      window.addEventListener('resize', handleResize);
+    }
+
+    // Garante recalculo após o primeiro paint (evita tiles faltando)
+    requestAnimationFrame(() => {
+      mapRef.current?.invalidateSize();
+    });
+
     return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      } else {
+        window.removeEventListener('resize', handleResize);
+      }
       mapRef.current?.remove();
       mapRef.current = null;
     };
