@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchBloquinhos } from './services/api';
 import { generateRoutesFromStart } from './services/routeEngine';
 import { Bloquinho, RouteSuggestion, AppState } from './types';
@@ -13,6 +13,7 @@ const App: React.FC = () => {
     filteredBlocks: [],
     selectedDate: '',
     suggestedRoutes: [],
+    searchQuery: '',
     minGapHours: DEFAULT_MIN_GAP_HOURS,
     isLoading: true,
     isGeneratingRoutes: false,
@@ -25,6 +26,10 @@ const App: React.FC = () => {
   const [originBlockId, setOriginBlockId] = useState<number | null>(null);
   const [routeInfoMessage, setRouteInfoMessage] = useState<string | null>(null);
   const [expandedBlockId, setExpandedBlockId] = useState<number | null>(null);
+  const [isDateMenuOpen, setIsDateMenuOpen] = useState(false);
+  const [isFiltersOpenMobile, setIsFiltersOpenMobile] = useState(true);
+  const [isScheduleOpenMobile, setIsScheduleOpenMobile] = useState(false);
+  const dateMenuRef = useRef<HTMLDivElement | null>(null);
 
   const getTodayString = () => {
     const d = new Date();
@@ -32,6 +37,35 @@ const App: React.FC = () => {
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  };
+
+  const normalizeQuery = (value: string) =>
+    value
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim();
+
+  const formatDateLabel = (date: string) => {
+    if (!date) return 'SELECIONE';
+    return date === getTodayString()
+      ? 'HOJE'
+      : new Date(date + 'T12:00:00')
+          .toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', weekday: 'short' })
+          .toUpperCase();
+  };
+
+  const matchesSearch = (block: Bloquinho, query: string) => {
+    if (!query) return true;
+    const fields = [
+      block.nome,
+      block.local,
+      block.endereco,
+      block.horario,
+      block.horario.substring(0, 5),
+      block.horario_fim || '',
+    ];
+    return fields.some(field => normalizeQuery(field).includes(query));
   };
 
   const availableDates = useMemo(() => {
@@ -76,18 +110,46 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!state.selectedDate) return;
-    const filtered = state.allBlocks.filter(b => b.data === state.selectedDate);
+    const normalizedQuery = normalizeQuery(state.searchQuery);
+    const filtered = state.allBlocks
+      .filter(b => b.data === state.selectedDate)
+      .filter(b => matchesSearch(b, normalizedQuery));
+
+    const availableIds = new Set(filtered.map(b => b.id));
+    const activeOriginStillVisible = originBlockId !== null && availableIds.has(originBlockId);
+
     setState(prev => ({ 
       ...prev, 
       filteredBlocks: filtered,
-      suggestedRoutes: [],
+      suggestedRoutes: activeOriginStillVisible ? prev.suggestedRoutes : [],
     }));
-    setActiveRouteIndex(null);
-    setFocusedBlockId(null);
-    setOriginBlockId(null);
-    setRouteInfoMessage(null);
-    setExpandedBlockId(null);
-  }, [state.selectedDate, state.allBlocks]);
+
+    if (!activeOriginStillVisible) {
+      setActiveRouteIndex(null);
+      setRouteInfoMessage(null);
+      setExpandedBlockId(null);
+    }
+
+    if (focusedBlockId !== null && !availableIds.has(focusedBlockId)) {
+      setFocusedBlockId(null);
+    }
+    if (originBlockId !== null && !availableIds.has(originBlockId)) {
+      setOriginBlockId(null);
+    }
+  }, [state.selectedDate, state.allBlocks, state.searchQuery, focusedBlockId, originBlockId]);
+
+  useEffect(() => {
+    if (!isDateMenuOpen) return;
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (dateMenuRef.current && !dateMenuRef.current.contains(event.target as Node)) {
+        setIsDateMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [isDateMenuOpen]);
 
   const handleFocusBlock = (block: Bloquinho) => {
     setFocusedBlockId(block.id);
@@ -119,6 +181,17 @@ const App: React.FC = () => {
     setRouteInfoMessage(null);
   };
 
+  const handleSearchChange = (value: string) => {
+    setState(prev => ({
+      ...prev,
+      searchQuery: value,
+      suggestedRoutes: []
+    }));
+    setActiveRouteIndex(null);
+    setRouteInfoMessage(null);
+    setExpandedBlockId(null);
+  };
+
   const handleGenerateFromBlock = (e: React.MouseEvent, block: Bloquinho) => {
     e.stopPropagation();
     setFocusedBlockId(block.id);
@@ -127,7 +200,11 @@ const App: React.FC = () => {
     setRouteInfoMessage(null);
     setExpandedBlockId(block.id);
     
-    setState(prev => ({ ...prev, isGeneratingRoutes: true }));
+    setState(prev => ({
+      ...prev,
+      isGeneratingRoutes: true,
+      searchQuery: ''
+    }));
 
     setTimeout(() => {
       const minGapMinutes = Math.max(0, Math.round(state.minGapHours * 60));
@@ -197,68 +274,136 @@ const App: React.FC = () => {
             </div>
 
             <div className="mt-5 grid gap-3">
-              <div className="panel-soft border border-white/10 rounded-xl px-3 py-2 flex flex-col gap-2">
-                <label htmlFor="date-select" className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">Data</label>
-                <select
-                  id="date-select"
-                  value={state.selectedDate}
-                  onChange={(e) => setState(prev => ({ ...prev, selectedDate: e.target.value }))}
-                  className="w-full bg-transparent text-white text-sm font-semibold outline-none cursor-pointer"
+              <button
+                type="button"
+                onClick={() => setIsFiltersOpenMobile(prev => !prev)}
+                className="panel-soft border border-white/10 rounded-xl px-3 py-2 flex items-center justify-between md:hidden"
+                aria-expanded={isFiltersOpenMobile}
+                aria-controls="mobile-filters"
+              >
+                <span className="text-[10px] font-semibold uppercase tracking-[0.4em] text-zinc-400">Parâmetros</span>
+                <span
+                  className={`w-7 h-7 rounded-full flex items-center justify-center text-sm font-semibold border transition-transform duration-200 ${isFiltersOpenMobile ? 'rotate-180 bg-white/10 text-white border-white/20' : 'rotate-0 bg-[var(--accent)] text-slate-900 border-transparent animate-pulse'}`}
                 >
-                  {availableDates.map(date => (
-                    <option key={date} value={date} className="text-slate-900">
-                      {date === getTodayString()
-                        ? `HOJE`
-                        : new Date(date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', weekday: 'short' }).toUpperCase()}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  ▾
+                </span>
+              </button>
 
-              <div className="panel-soft border border-white/10 rounded-xl px-3 py-2 flex flex-col gap-2">
-                <div>
-                  <label htmlFor="min-gap-hours" className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 block">Intervalo</label>
-                  <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mt-1">horas</p>
+              <div id="mobile-filters" className={`${isFiltersOpenMobile ? 'grid' : 'hidden'} gap-3 md:grid`}>
+                <div className="panel-soft border border-white/10 rounded-xl px-3 py-2 flex flex-col gap-2 relative" ref={dateMenuRef}>
+                  <label htmlFor="date-select" className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">Data</label>
+                  <button
+                    id="date-select"
+                    type="button"
+                    onClick={() => setIsDateMenuOpen(prev => !prev)}
+                    className="w-full bg-transparent text-white text-sm font-semibold outline-none cursor-pointer flex items-center justify-between"
+                    aria-haspopup="listbox"
+                    aria-expanded={isDateMenuOpen}
+                  >
+                    <span>{formatDateLabel(state.selectedDate)}</span>
+                    <span className="text-xs text-zinc-400">▾</span>
+                  </button>
+                  {isDateMenuOpen && (
+                    <div
+                      role="listbox"
+                      aria-label="Selecionar data"
+                      className="absolute left-0 right-0 top-full mt-2 z-30 max-h-56 overflow-auto rounded-lg border border-white/10 bg-[var(--panel-bg)] shadow-lg custom-scrollbar"
+                    >
+                      {availableDates.map(date => (
+                        <button
+                          key={date}
+                          type="button"
+                          role="option"
+                          aria-selected={date === state.selectedDate}
+                          onClick={() => {
+                            setState(prev => ({ ...prev, selectedDate: date }));
+                            setIsDateMenuOpen(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 text-sm font-semibold transition-colors ${date === state.selectedDate ? 'bg-white/10 text-white' : 'text-zinc-200 hover:bg-white/5'}`}
+                        >
+                          {formatDateLabel(date)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="w-full flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => adjustMinGapHours(-1)}
-                    className="w-8 h-8 rounded-full bg-white/10 border border-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-colors"
-                    aria-label="Diminuir intervalo"
-                  >
-                    -
-                  </button>
+
+                <div className="panel-soft border border-white/10 rounded-xl px-3 py-2 flex flex-col gap-2">
+                  <div>
+                    <label htmlFor="min-gap-hours" className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 block">Intervalo</label>
+                    <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mt-1">horas</p>
+                  </div>
+                  <div className="w-full flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => adjustMinGapHours(-1)}
+                      className="w-8 h-8 rounded-full bg-white/10 border border-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-colors"
+                      aria-label="Diminuir intervalo"
+                    >
+                      -
+                    </button>
+                    <input
+                      id="min-gap-hours"
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={state.minGapHours}
+                      onChange={(e) => handleMinGapHoursChange(e.target.value)}
+                      className="no-spin flex-1 bg-transparent text-white text-sm font-semibold outline-none text-center"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => adjustMinGapHours(1)}
+                      className="w-8 h-8 rounded-full bg-white/10 border border-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-colors"
+                      aria-label="Aumentar intervalo"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <div className="panel-soft border border-white/10 rounded-xl px-3 py-2 flex flex-col gap-2">
+                  <label htmlFor="search-blocks" className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">Pesquisa</label>
                   <input
-                    id="min-gap-hours"
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={state.minGapHours}
-                    onChange={(e) => handleMinGapHoursChange(e.target.value)}
-                    className="no-spin flex-1 bg-transparent text-white text-sm font-semibold outline-none text-center"
+                    id="search-blocks"
+                    type="text"
+                    value={state.searchQuery}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                    placeholder="Rua, bloco ou horário"
+                    className="w-full bg-transparent text-white text-sm font-semibold outline-none placeholder:text-zinc-600"
                   />
-                  <button
-                    type="button"
-                    onClick={() => adjustMinGapHours(1)}
-                    className="w-8 h-8 rounded-full bg-white/10 border border-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-colors"
-                    aria-label="Aumentar intervalo"
-                  >
-                    +
-                  </button>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="px-5 py-3 border-b border-white/10 flex items-center justify-between">
-            <h2 className="text-[11px] font-semibold text-zinc-400 uppercase tracking-[0.4em]">Programação</h2>
-            <span className="bg-white/10 text-white text-[10px] font-semibold px-2 py-1 rounded-full">
-              {state.filteredBlocks.length} blocos
-            </span>
+          <div className="px-5 py-3 border-b border-white/10">
+            <div className="hidden md:flex items-center justify-between">
+              <h2 className="text-[11px] font-semibold text-zinc-400 uppercase tracking-[0.4em]">Programação</h2>
+              <span className="bg-white/10 text-white text-[10px] font-semibold px-2 py-1 rounded-full">
+                {state.filteredBlocks.length} blocos
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsScheduleOpenMobile(prev => !prev)}
+              className="w-full panel-soft border border-white/10 rounded-xl px-3 py-2 flex items-center justify-between md:hidden"
+              aria-expanded={isScheduleOpenMobile}
+              aria-controls="mobile-schedule"
+            >
+              <div className="flex flex-col text-left">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.4em] text-zinc-400">Programação</span>
+                <span className="text-[10px] font-semibold text-zinc-500">Toque para {isScheduleOpenMobile ? 'ocultar' : 'abrir'} ({state.filteredBlocks.length} blocos)</span>
+              </div>
+              <span
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-sm font-semibold border transition-transform duration-200 ${isScheduleOpenMobile ? 'rotate-180 bg-white/10 text-white border-white/20' : 'rotate-0 bg-[var(--accent)] text-slate-900 border-transparent animate-pulse'}`}
+              >
+                ▾
+              </span>
+            </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 custom-scrollbar">
+          <div id="mobile-schedule" className={`${isScheduleOpenMobile ? 'block' : 'hidden'} md:block flex-1 overflow-y-auto px-5 py-4 space-y-4 custom-scrollbar`}>
             {routeInfoMessage && (
               <div className="border border-white/10 bg-white/5 p-4 rounded-2xl animate-in slide-in-from-left-4 duration-300">
                 <div className="flex items-center gap-2 mb-1.5">
@@ -334,7 +479,7 @@ const App: React.FC = () => {
                               suggestedRoutes: []
                             }));
                           }}
-                          className="text-[9px] font-semibold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-colors"
+                          className="text-[9px] font-semibold uppercase tracking-widest text-white bg-[var(--accent-warning)]/30 border border-[var(--accent-warning)]/60 px-3 py-1.5 rounded-full hover:bg-[var(--accent-warning)]/50 hover:text-white transition-colors"
                         >
                           Ocultar
                         </button>
@@ -376,9 +521,28 @@ const App: React.FC = () => {
               ))
             )}
           </div>
+
+          <div className="hidden md:block px-5 py-4 border-t border-white/10">
+            <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-[0.3em]">
+              Desenvolvido por{' '}
+              <a
+                href="https://www.instagram.com/zaza.py/"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[var(--accent)] hover:text-[var(--accent-strong)] transition-colors"
+              >
+                Isaías
+              </a>
+            </p>
+          </div>
+
         </aside>
 
-        <div className="flex-1 relative h-1/2 md:h-full p-3 md:p-4 min-h-0">
+        <div
+          className={`flex-1 relative min-h-0 p-3 md:p-4 transition-all duration-300 ease-out md:h-full ${
+            activeRoute ? 'h-[65vh] -mt-[12vh]' : 'h-1/2'
+          } md:mt-0`}
+        >
           <Map 
             blocks={state.filteredBlocks} 
             highlightedRoute={activeRoute}
@@ -386,7 +550,7 @@ const App: React.FC = () => {
           />
           
           {activeRoute && (
-            <div className="absolute top-6 left-6 right-6 md:left-auto md:right-6 md:w-80 panel-soft shadow-2xl p-5 rounded-2xl border border-white/10 z-[1000] animate-in fade-in slide-in-from-top-4 duration-300">
+            <div className="hidden md:block absolute top-6 left-6 right-6 md:left-auto md:right-6 md:w-80 panel-soft shadow-2xl p-5 rounded-2xl border border-white/10 z-[1000] animate-in fade-in slide-in-from-top-4 duration-300">
               <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-2">
                 <div>
                    <h3 className="font-semibold text-[var(--accent)] text-sm uppercase tracking-tight">Roteiro ativo</h3>
@@ -416,7 +580,54 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
+        <div className="px-3 pb-4 text-center md:hidden">
+          <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-[0.3em]">
+            Desenvolvido por{' '}
+            <a
+              href="https://www.instagram.com/zaza.py/"
+              target="_blank"
+              rel="noreferrer"
+              className="text-[var(--accent)] hover:text-[var(--accent-strong)] transition-colors"
+            >
+              Isaías
+            </a>
+          </p>
+        </div>
       </div>
+      {activeRoute && (
+        <div className="md:hidden fixed inset-0 z-[2000] pointer-events-none">
+          <div className="absolute top-0 left-0 right-0 panel-dark border-b border-white/10 shadow-2xl pointer-events-auto">
+            <div className="px-5 py-5">
+              <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-2">
+                <div>
+                  <h3 className="font-semibold text-[var(--accent)] text-sm uppercase tracking-tight">Roteiro ativo</h3>
+                  <p className="text-[9px] text-zinc-400 font-semibold uppercase">Distância total: {(activeRoute as any).totalDist ? (activeRoute as any).totalDist.toFixed(1) + 'km' : 'Calculando...'}</p>
+                </div>
+                <button onClick={() => setActiveRouteIndex(null)} className="text-zinc-200 hover:text-white bg-white/10 w-7 h-7 rounded-full flex items-center justify-center transition-colors">✕</button>
+              </div>
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-1">
+                {activeRoute.blockIds.map((bid, i) => {
+                  const b = state.allBlocks.find(x => x.id === bid);
+                  return (
+                    <div key={bid} className="flex gap-3 items-start group cursor-pointer" onClick={() => setFocusedBlockId(bid)}>
+                      <div className="flex flex-col items-center flex-shrink-0">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-semibold shadow-sm transition-transform group-hover:scale-110 ${i === 0 ? 'bg-[var(--accent)] text-slate-900' : 'bg-white/10 text-zinc-200'}`}>
+                          {i + 1}
+                        </div>
+                        {i < activeRoute.blockIds.length - 1 && <div className="w-0.5 h-6 bg-white/10 my-1"></div>}
+                      </div>
+                      <div className="flex-1 min-w-0 pt-0.5">
+                        <p className="text-[11px] font-semibold text-zinc-100 leading-none truncate group-hover:text-[var(--accent)] transition-colors">{b?.nome}</p>
+                        <p className="text-[10px] text-[var(--accent)] font-semibold mt-1.5">{b?.horario.substring(0, 5)}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

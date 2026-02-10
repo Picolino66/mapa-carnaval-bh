@@ -25,6 +25,7 @@ export interface AppState {
   filteredBlocks: Bloquinho[];
   selectedDate: string;
   suggestedRoutes: RouteSuggestion[];
+  searchQuery: string;
   minGapHours: number;
   isLoading: boolean;
   isGeneratingRoutes: boolean;
